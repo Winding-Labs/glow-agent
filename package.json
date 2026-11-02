@@ -1,0 +1,16 @@
+{
+  "name": "@winding-labs/glow",
+  "version": "0.1.0",
+  "description": "Send what your coding agents (Claude Code, Codex) do to your Glow channels, and message them back from Glow.",
+  "type": "module",
+  "bin": { "glow": "bin/glow.mjs" },
+  "files": ["bin/", "lib/", "README.md", "SECURITY.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "bun test", "typecheck": "true" },
+  "license": "MIT",
+  "homepage": "https://meetglow.ai",
+  "repository": { "type": "git", "url": "git+https://github.com/Winding-Labs/glow-agent.git" },
+  "bugs": "https://github.com/Winding-Labs/glow-agent/issues",
+  "keywords": ["glow", "claude-code", "codex", "coding-agents", "hooks"],
+  "publishConfig": { "access": "public" }
+}
