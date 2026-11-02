@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 // @ts-expect-error plain JS
-import { apiOk, mask, parseRemote, prIn } from '../lib/core.mjs';
+import { apiOk, mask, parseRemote, prIn, VERSION } from '../lib/core.mjs';
 // @ts-expect-error plain JS
-import { hookEntry, isOurs, withHook, withoutHook } from '../lib/agents.mjs';
+import { hookEntry, isOurs, withHook, withoutHook, writeJson } from '../lib/agents.mjs';
 
 const ROOT = path.join(import.meta.dir, '..');
 type Req = { method: string; path: string; auth: string | null; body: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -71,6 +71,25 @@ function exec(cmd: string, args: string[], o: { cwd?: string; env: Record<string
     p.stdin.end(o.input ?? '');
   });
 }
+
+test('the version it prints is the published one', () => {
+  expect(VERSION).toBe(JSON.parse(fs.readFileSync(path.join(import.meta.dir, '..', 'package.json'), 'utf8')).version);
+});
+
+test('the .before-glow backup is always the file as it was before Glow', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glow-backup-'));
+  const fresh = path.join(dir, 'hooks.json'); // no file yet: nothing to back up, then or on a re-run
+  writeJson(fresh, withHook({}, hookEntry('codex', '/h/.glow/hook')));
+  writeJson(fresh, withHook(JSON.parse(fs.readFileSync(fresh, 'utf8')), hookEntry('codex', '/h/.glow/hook')));
+  expect(fs.existsSync(`${fresh}.before-glow`)).toBe(false);
+  const mine = path.join(dir, 'settings.json');
+  fs.writeFileSync(mine, '{"model":"opus"}\n');
+  writeJson(mine, withHook({ model: 'opus' }, hookEntry('claude_code', '/h/.glow/hook')));
+  writeJson(mine, withoutHook(JSON.parse(fs.readFileSync(mine, 'utf8'))));
+  writeJson(mine, withHook({ model: 'opus' }, hookEntry('claude_code', '/h/.glow/hook')));
+  expect(fs.readFileSync(`${mine}.before-glow`, 'utf8')).toBe('{"model":"opus"}\n');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 describe('the hook and the installer against a fake Glow', () => {
   let server: ReturnType<typeof Bun.serve>;
