@@ -1,0 +1,22 @@
+{
+  "name": "glow",
+  "version": "0.1.5",
+  "description": "See what Glow sends from this computer, stop or start a repo sending to Glow, and let Glow start Claude Code sessions here",
+  "author": { "name": "Glow", "email": "hi@winding.ai", "url": "https://meetglow.ai" },
+  "homepage": "https://meetglow.ai",
+  "repository": "https://github.com/Winding-Labs/glow-agent",
+  "license": "MIT",
+  "keywords": ["glow", "codex", "coding-agents"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Glow",
+    "shortDescription": "What Glow sends from this computer; ignore a repo",
+    "longDescription": "Codex sessions in repos linked to a product post what they did to that product's Glow channel. These skills show what's set up here and stop (or start) a repo sending to Glow from this computer.",
+    "developerName": "Glow",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://meetglow.ai",
+    "privacyPolicyURL": "https://meetglow.ai/privacy",
+    "termsOfServiceURL": "https://meetglow.ai/terms"
+  }
+}

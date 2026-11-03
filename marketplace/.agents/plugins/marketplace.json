@@ -1,0 +1,12 @@
+{
+  "name": "glow",
+  "interface": { "displayName": "Glow" },
+  "plugins": [
+    {
+      "name": "glow",
+      "source": { "source": "local", "path": "./glow" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

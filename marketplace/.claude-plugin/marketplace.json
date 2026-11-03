@@ -1,0 +1,13 @@
+{
+  "name": "glow",
+  "description": "Glow's commands for Claude Code: /glow:status, /glow:ignore, /glow:unignore, /glow:run",
+  "owner": { "name": "Glow", "url": "https://meetglow.ai" },
+  "plugins": [
+    {
+      "name": "glow",
+      "source": "./glow",
+      "description": "See what Glow sends from this computer, stop or start a repo sending to Glow, and let Glow start Claude Code sessions here",
+      "version": "0.1.5"
+    }
+  ]
+}
