@@ -42,12 +42,12 @@ npx @winding-labs/glow run ~/code --background
 ```
 
 Only if you want it, and only while it runs: press **Run** on your queue in the Glow app, look at your phone (Face ID),
-and the tasks in it run here in Claude Code, a few at once, oldest first, with your own Claude Code model and effort
+and the tasks in it run here in Claude Code, a few at once, top of the queue first, with your own Claude Code model and effort
 (whatever `claude` uses in a terminal). For the next 5 minutes, anything you add to the queue runs too. Nothing starts by
 itself. Glow's Agents tab shows the
 queue live: what's running and its last step, what's next, what finished and what came of it, with each run's time,
 turns, cost and how full its context is. Tap one for its whole run: what it was asked, what it said and did, its reply.
-**Run now** starts any task at once (Glow's suggestions and teammates' tasks run only when you press it); **New
+**Run** on a row starts that task at once (Glow's suggestions and teammates' tasks run only when you press it); **New
 session** starts one with a prompt you type. Each runs in your checkout of a repo that's linked to the task's product
 and found under the folders you give it (the current folder by default). Its reply posts to the product's channel like
 any session's, except for a task someone else wrote or one filed from a capture: then only you see it, on its run.
@@ -64,11 +64,16 @@ Pause the computer in Glow to hold the queue.
   tasks run when you press Run on them, like yours.
 - **Full access:** every session runs like your own `claude --dangerously-skip-permissions`: nothing asks before a
   command, so start the runner only on a computer where you'd run that yourself. Each works in a git worktree of its own
-  (`.claude/worktrees/glow-…`, a new branch from your default branch), so your checkout stays as it is, and is told to
-  ship its work as a pull request: commit, push its branch, `gh pr create`, never your default branch. pnpm and yarn work
+  (`.claude/worktrees/glow-…`, a new branch from your default branch), so your checkout stays as it is. pnpm and yarn work
   even if only Node's corepack is installed. Glow's own CLI and `~/.glow` stay denied (a session can't turn
-  Glow off, stop the runner or read the computer's key). Read a task someone else wrote, or one from a capture, before
-  you press Run: it runs with the same access.
+  Glow off, stop the runner or read the computer's key).
+- **Run is the yes:** a session is told to finish the job live, with no second yes: merge its pull request once checks
+  pass, deploy with your repo's own deploy path, change ad campaigns through the provider's API with the credentials on
+  this computer, send, submit and publish. Its limits: never spend above the budget the brief names (none named: total
+  daily ad spend stays flat), check which branch production really deploys from first, never delete data, drop tables,
+  force push or rotate credentials unless the brief says so, and never run a paid test twice. These are instructions, not
+  locks, and no person reviews what it merges. So read a task someone else wrote, or one from a capture, before you press
+  Run: it runs with the same access.
 - **This computer decides too**, whatever Glow sends: `--repo owner/name` (repeat it) runs only those repos,
   and `--repo owner/name=~/code/zest` picks the checkout when a repo is checked out more than once (otherwise it doesn't
   run; worktrees don't count: it runs in the main checkout). Only in a folder you've trusted in Claude Code (opened `claude` there and said yes), since its own `.claude`

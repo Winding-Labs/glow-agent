@@ -29,8 +29,12 @@ Report a vulnerability to **security@meetglow.ai**. Please don't open a public i
   passes neither). Starting the runner is how you say yes to that, on this computer; it says so when it starts. Each
   session runs in a git worktree of its own that the runner makes (`.claude/worktrees/glow-<id>`, letters and digits
   only, on a new branch of that name from the default branch as origin has it, kept afterwards), never in the checkout
-  you work in. It's told to ship its work as a pull request: commit on that branch, push it and open one with `gh`,
-  never pushing to the default branch or merging (an instruction, not a limit: with full access it could). Where pnpm or
+  you work in. It's told your Run with Face ID is the yes, and to finish the job live: open a pull request, merge it once
+  its checks pass, deploy with the repo's own deploy path, change ad campaigns through the provider's API with the
+  credentials on this computer, send, submit and publish. It's told its limits too (never above the budget the brief
+  names, none named means total daily ad spend stays flat; check which branch production deploys from; never delete data,
+  drop tables, force push or rotate credentials unless the brief says so; never run a paid test twice). All of that is an
+  instruction, not a lock: with full access it could do otherwise, and no person reviews what it merges. Where pnpm or
   yarn isn't installed, corepack's own shims for them (`~/.cache/glow/bin`) go last on its PATH. Nothing starts by
   itself: each session runs only with your Glow phone's signature over it (below), up to 3 at once; a task someone else
   wrote, or one from a capture, runs with the same access when you press Run, so read it first. Always `--disallowedTools` for

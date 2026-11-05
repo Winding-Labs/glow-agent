@@ -12,7 +12,8 @@ import { messagePayload as coreMessagePayload, runPayload as coreRunPayload } fr
 // @ts-expect-error plain JS
 import { hookEntry, isOurs, withHook, withoutHook, writeJson } from '../lib/agents.mjs';
 // @ts-expect-error plain JS
-import { addWorktree, argsFor, claudeFlags, DENY, findRepos, groupsUnder, inRunnerSession, planOf, toolchain, trusted, UNATTENDED } from '../lib/runner.mjs';
+import { addWorktree, argsFor, childEnv, claudeFlags, DENY, findRepos, groupsUnder, inRunnerSession, planOf, promptFor, STANDING_ORDER, toolchain, trusted, UNATTENDED } from '../lib/runner.mjs';
+import { STANDING_ORDER as CORE_STANDING_ORDER, withStandingOrder } from '../../core/src/agents';
 
 const ROOT = path.join(import.meta.dir, '..');
 
@@ -670,7 +671,7 @@ process.stdin.on('end', () => {
       expect([at(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), at(wt, 'log', '-1', '--format=%s')]).toEqual(['glow-cs1', 'Upstream fix']);
       expect(() => at(wt, 'rev-parse', '--abbrev-ref', '@{upstream}')).toThrow();
       expect(at(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('seo-titles');
-      expect(call.prompt).toBe(first.prompt);
+      expect(call.prompt).toBe(withStandingOrder(first.prompt)); // the standing order on the end, as an API before 0.1.12 didn't add it
       expect(call.args).not.toContain(first.prompt);
       const sid = call.args[call.args.indexOf('--session-id') + 1];
       expect(sid).toMatch(/^[0-9a-f-]{36}$/);
@@ -780,7 +781,7 @@ process.stdin.on('end', () => {
       // the one it signed runs
       glow.queue = [good];
       await until(() => calls().length === 1, 8000, () => run.out);
-      expect(calls()[0].prompt).toBe('list the files');
+      expect(calls()[0].prompt).toBe(withStandingOrder('list the files'));
     } finally {
       run.p.kill('SIGINT');
       await run.exited;
@@ -972,9 +973,26 @@ describe('the runner’s pieces', () => {
       '--name', 'Glow: --dangerously-skip-permissions rm -rf', '--append-system-prompt', UNATTENDED,
     ]);
     expect(argsFor(now, 's', 't').join(' ')).not.toMatch(/--model|--effort|--permission-mode|--worktree/);
-    // every session is told it runs unattended, to finish the job as a pull request, in zsh, without a Grep tool
-    expect(UNATTENDED).toMatch(/unattended.*run the checks.*fresh git worktree.*install dependencies.*commit.*git push -u origin HEAD.*gh pr create.*Never push to the default branch.*pull request link/s);
+    // every session is told it runs unattended, to finish the job live (Run is the yes) inside its limits, in zsh, without a Grep tool
+    expect(UNATTENDED).toMatch(/unattended.*run the checks.*fresh git worktree.*install dependencies.*commit.*git push -u origin HEAD.*Face ID.*merge it once its checks pass.*deploy.*never spend above the budget.*which branch production really deploys from.*Never delete data.*how to undo it/s);
+    expect(UNATTENDED).not.toMatch(/Never push to the default branch|left for a person/i);
+    expect(UNATTENDED).toMatch(/Glow's own CLI and ~\/\.glow are off limits/);
+    // the same words the API puts on the end of the prompt, so a runner older than this one gets them too
+    expect(STANDING_ORDER).toBe(CORE_STANDING_ORDER);
+    expect(UNATTENDED).toContain(STANDING_ORDER);
+    // and on the end of the prompt itself, once: an API from before 0.1.12 didn't put them there, a newer one did
+    expect(promptFor('Test Meta Ads. Leave it as a draft for a yes.')).toBe(withStandingOrder('Test Meta Ads. Leave it as a draft for a yes.'));
+    expect(promptFor(withStandingOrder('Fix the page.'))).toBe(withStandingOrder('Fix the page.'));
     expect(UNATTENDED).toMatch(/zsh.*quote globs.*no Grep or Glob tool/s);
+    // a runner started from inside Claude Code doesn't hand its sessions that session's id, socket, token or flags
+    const parent = { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'p', CLAUDE_CODE_SESSION_ATTENDED: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_MESSAGING_TOKEN: 't', CLAUDE_PID: '9' };
+    const had = Object.fromEntries(Object.keys(parent).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, parent);
+    try {
+      expect(Object.keys(childEnv()).filter((k) => k in parent)).toEqual([]);
+    } finally {
+      for (const [k, v] of Object.entries(had)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
     expect(argsFor(old, 's', 't')).toEqual(['-p', '--output-format', 'stream-json', '--verbose', '--session-id', 's', '--dangerously-skip-permissions', '--disallowedTools', ...DENY]);
   });
 
