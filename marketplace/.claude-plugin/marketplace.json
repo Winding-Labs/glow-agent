@@ -7,7 +7,7 @@
       "name": "glow",
       "source": "./glow",
       "description": "See what Glow sends from this computer, stop or start a repo sending to Glow, and let Glow start Claude Code sessions here",
-      "version": "0.1.5"
+      "version": "0.1.11"
     }
   ]
 }

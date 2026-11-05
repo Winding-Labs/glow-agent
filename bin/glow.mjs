@@ -11,6 +11,8 @@
 //   npx @winding-labs/glow recipes off     stop sending the request each reply answers (Glow learns recipes from it)
 //   npx @winding-labs/glow run [folder…]   let Glow start Claude Code sessions here, in the linked repos under these
 //                                          folders (default: this one), while it runs (--background; run stop)
+//   npx @winding-labs/glow phone           the Glow phone this computer trusts (what it signs runs here), and Glow's word
+//   npx @winding-labs/glow phone trust     trust the phone Glow names now instead (after you made a new one yours)
 //   npx @winding-labs/glow uninstall       remove the hooks and plugins, revoke this computer's key, delete ~/.glow
 //
 // Setup copies this package to ~/.glow (bin, lib, marketplace) with two shims: ~/.glow/hook, which the agents' Stop
@@ -23,8 +25,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addPlugin, AGENTS, detect, install, installed, removePlugin, shimPath, shq, uninstall } from '../lib/agents.mjs';
-import { api, apiBase, apiOk, computerName, DEFAULT_API, dir, ignoredOf, printable, readConfig, REPO_RE, repoOf, VERSION, writeConfig } from '../lib/core.mjs';
-import { inRunnerSession, logPath, MODES, runnerState, SESSION_ENV, startRunner } from '../lib/runner.mjs';
+import { api, apiBase, apiOk, computerName, DEFAULT_API, dir, fingerprintText, ignoredOf, phoneOf, pinPhone, printable, readConfig, REPO_RE, repoOf, VERSION, writeConfig } from '../lib/core.mjs';
+import { inRunnerSession, logPath, runnerState, SESSION_ENV, startRunner } from '../lib/runner.mjs';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tty = process.stdout.isTTY;
@@ -47,13 +49,15 @@ const HELP = `Glow ${VERSION}: send what your coding agents do to your Glow chan
   npx @winding-labs/glow off | on        stop or start sending from this computer
   npx @winding-labs/glow messages off    stop messages from Glow reaching your agents here (messages on: again)
   npx @winding-labs/glow recipes off     don't send your requests, so Glow learns no recipes from them (recipes on: again)
-  npx @winding-labs/glow run [folder…]   let Glow start Claude Code sessions here (Agents tab), in the linked repos
-                                         checked out under these folders (default: this one), while it runs
+  npx @winding-labs/glow run [folder…]   let Glow start Claude Code sessions here (Agents tab, your queue), in the linked
+                                         repos checked out under these folders (default: this one), while it runs. Each
+                                         runs like your own claude --dangerously-skip-permissions, with your Claude Code
+                                         model and effort, in a git worktree of its own
       --background                       keep it running after this terminal closes (log: ~/.glow/runner.log)
-      --max-mode read|edit|auto          the most a session may do on its own here, whatever Glow asks (default: read,
-                                         Look only; edit lets it edit files, auto runs Claude Code's auto mode)
       --repo owner/name[=path]           only this repo (repeat for more); =path picks its checkout
   npx @winding-labs/glow run stop        stop it, and the sessions it runs
+  npx @winding-labs/glow phone           the Glow phone this computer trusts: only what it signs (after Face ID) runs here
+  npx @winding-labs/glow phone trust     trust the phone Glow names now instead (once you've made a new phone yours)
   npx @winding-labs/glow uninstall       remove the hooks and revoke this computer's key
 
 In Claude Code: /glow:status, /glow:ignore, /glow:unignore, /glow:run (in Codex: $glow:status, $glow:ignore, …)
@@ -66,7 +70,7 @@ Options for setup:
 `;
 
 function parse(argv) {
-  const o = { cmd: 'install', agents: [], api: DEFAULT_API, dev: false, open: true, fresh: false, name: '', messages: null, recipes: null, target: '', roots: [], background: false, runStop: false, maxMode: 'read', allow: new Map() };
+  const o = { cmd: 'install', agents: [], api: DEFAULT_API, dev: false, open: true, fresh: false, name: '', messages: null, recipes: null, target: '', roots: [], background: false, runStop: false, allow: new Map() };
   // One command per call: `glow ignore x run …` must not become `run` (a skill allowed to run `glow ignore` can't
   // reach any other command).
   let named = '', asked = '';
@@ -95,6 +99,9 @@ function parse(argv) {
     } else if (a === 'ignore' || a === 'unignore') {
       command(a);
       if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) o.target = argv[++i];
+    } else if (a === 'phone') {
+      command('phone');
+      if (argv[i + 1] === 'trust') o.trust = !!argv[++i];
     } else if (a === 'run') {
       command('run');
       while (argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) {
@@ -103,10 +110,7 @@ function parse(argv) {
         else o.roots.push(x);
       }
     } else if (a === '--background' && o.cmd === 'run') o.background = true;
-    else if (a === '--max-mode' && o.cmd === 'run') {
-      o.maxMode = argv[++i] ?? '';
-      if (!MODES.includes(o.maxMode)) fail('--max-mode is read, edit or auto.');
-    } else if (a === '--repo' && o.cmd === 'run') {
+    else if (a === '--repo' && o.cmd === 'run') {
       const [name, at] = String(argv[++i] ?? '').split(/=(.*)/s);
       const repo = name.toLowerCase();
       if (!REPO_RE.test(repo)) fail('--repo is owner/name, or owner/name=path to pick its checkout.');
@@ -128,6 +132,7 @@ async function main() {
   if (o.cmd === 'help') return console.log(HELP);
   if (o.cmd === 'version') return console.log(VERSION);
   if (o.cmd === 'status') return status();
+  if (o.cmd === 'phone' && !o.trust) return phone(false);
   // A session Glow started here can't change how Glow reaches this computer (stop the runner, turn sending off, …).
   if (inRunnerSession()) fail('Not from a session Glow started: run it yourself, in a terminal.');
   if (o.cmd === 'off' || o.cmd === 'on') return toggle(o.cmd === 'off');
@@ -135,6 +140,7 @@ async function main() {
   if (o.cmd === 'recipes') return recipes(o.recipes);
   if (o.cmd === 'ignore' || o.cmd === 'unignore') return ignore(o.target, o.cmd === 'ignore');
   if (o.cmd === 'run') return run(o);
+  if (o.cmd === 'phone') return phone(true);
   if (o.cmd === 'uninstall') return remove();
   return setup(o);
 }
@@ -157,8 +163,10 @@ async function setup(o) {
   let info = null;
   if (cfg) {
     const res = await api(cfg, 'GET', '/api/v1/agent/config', undefined, 10_000);
-    if (res.status === 200) info = res.json;
-    else if (res.status === 401) {
+    if (res.status === 200) {
+      info = res.json;
+      cfg = pinPhone(cfg, res.json?.phone, ok);
+    } else if (res.status === 401) {
       warn('This computer’s key no longer works (it was removed in Glow). Pairing again.');
       cfg = null;
     } else if (res.status === 403) warn('This computer is paused in Glow. Resume it there (Connections › Coding agents).');
@@ -332,6 +340,35 @@ const linkUrl = (cfg, repo) => `${apiBase(cfg.api)}/app/pair?repo=${encodeURICom
 // ---------- status, off/on, uninstall ----------
 
 /** What's set up here, what this folder sends (and why not), and the repos that report or are ignored. */
+/** The Glow phone this computer trusts, and Glow's word on it; `trust`: pin the one Glow names now, once its owner,
+ *  at this terminal, says it's theirs (its fingerprint, as the app shows it). */
+async function phone(trust) {
+  const cfg = readConfig();
+  if (!cfg) fail('Glow isn’t set up on this computer. Set it up: npx @winding-labs/glow');
+  const res = await api(cfg, 'GET', '/api/v1/agent/config', undefined, 10_000);
+  if (res.status !== 200) fail(res.status === 401 ? 'This computer’s key no longer works. Pair again: npx @winding-labs/glow' : `Couldn’t ask Glow (${res.status || 'offline'}).`);
+  const named = phoneOf(res.json?.phone);
+  const line = (p) => `${bold(printable(p.name, 60))} ${dim(fingerprintText(p.fingerprint))}`;
+  if (!trust) {
+    console.log(cfg.phone?.fingerprint ? `Trusted here: ${line(cfg.phone)}. Only what it signs (after Face ID) runs on this computer.` : 'No Glow phone is trusted here yet: make your phone your Glow phone in the app (Settings › Glow phone).');
+    if (named && named.fingerprint !== cfg.phone?.fingerprint) console.log(`Glow names ${line(named)}. To trust it instead: npx @winding-labs/glow phone trust`);
+    if (!named) console.log(dim('Glow names no Glow phone for you right now.'));
+    return;
+  }
+  if (!named) fail('Glow names no Glow phone for you. Make your phone your Glow phone in the app first (Settings › Glow phone).');
+  if (named.fingerprint === cfg.phone?.fingerprint) return ok(`Already trusted: ${line(named)}`);
+  // Glow's word alone never swaps the key: the person at this terminal checks the fingerprint against their phone.
+  if (!process.stdin.isTTY || !tty) fail('Run it yourself, in a terminal: it asks you to check the fingerprint against your phone.');
+  console.log(`Glow says your Glow phone is now ${line(named)}.`);
+  console.log(`Open the app on that phone, Settings › Glow phone: it shows ${bold(fingerprintText(named.fingerprint))}. Not the same, or not your doing? Answer no.`);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((r) => rl.question('Trust it on this computer? (yes/no) ', r));
+  rl.close();
+  if (String(answer).trim().toLowerCase() !== 'yes') return warn('Nothing changed.');
+  writeConfig({ ...(readConfig() ?? cfg), phone: { ...named, pinned_at: new Date().toISOString() } });
+  ok(`Trusted: ${line(named)}. What it signs runs here; what ${cfg.phone?.name ? printable(cfg.phone.name, 60) : 'any other phone'} signs doesn’t.`);
+}
+
 async function status() {
   const cfg = readConfig();
   if (!cfg) return console.log('Glow isn’t set up on this computer, so nothing is sent from it. Set it up: npx @winding-labs/glow');
@@ -365,6 +402,9 @@ async function status() {
     ['Agents', agents],
     ['Reporting', reporting.length ? reporting.join(', ') : 'no repo yet'],
     ['Ignored here', ignored.length ? ignored.join(', ') : 'none'],
+    ['Glow phone', cfg.phone?.fingerprint
+      ? `${printable(cfg.phone.name, 60)} (${fingerprintText(cfg.phone.fingerprint)}): only what it signs runs here${phoneOf(res.json?.phone) && phoneOf(res.json.phone).fingerprint !== cfg.phone.fingerprint ? ` · Glow names another: npx @winding-labs/glow phone trust` : ''}`
+      : 'none trusted yet: make your phone your Glow phone in the app (Settings › Glow phone)'],
     ['Runner', rs
       ? `on since ${new Date(rs.started_at).toLocaleString()} (pid ${rs.pid}) in ${(rs.roots ?? []).map((r) => printable(r, 160)).join(', ')}: Glow can start Claude Code sessions here · stop: npx @winding-labs/glow run stop`
       : 'off: Glow can’t start sessions here (to let it: npx @winding-labs/glow run, in your code folder)'],
@@ -510,17 +550,17 @@ async function run(o) {
     }
     const fd = fs.openSync(log, 'a', 0o600);
     fs.chmodSync(log, 0o600);
-    const flags = ['--max-mode', o.maxMode, ...[...o.allow].flatMap(([r, at]) => ['--repo', at ? `${r}=${at}` : r])];
+    const flags = [...o.allow].flatMap(([r, at]) => ['--repo', at ? `${r}=${at}` : r]);
     const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'run', ...roots, ...flags], { detached: true, stdio: ['ignore', fd, fd], env: process.env, cwd: roots[0] });
     child.unref();
     for (let n = 0; n < 80 && runnerState()?.pid !== child.pid; n++) await sleep(100);
     if (runnerState()?.pid !== child.pid) fail(`The runner didn’t start. See ${tilde(log)}`);
-    ok(`Runner on in the background (pid ${child.pid}): Glow can start Claude Code sessions in the linked repos under ${roots.map(tilde).join(', ')}.`);
+    ok(`Runner on in the background (pid ${child.pid}): it runs what your Glow phone signs, 3 at a time, in the linked repos under ${roots.map(tilde).join(', ')} (pause this computer in Glow to hold it).`);
     console.log(dim(`Log: ${tilde(log)} · Stop: npx @winding-labs/glow run stop`));
     return;
   }
   for (const [r, at] of o.allow) if (at && (!fs.existsSync(at) || !fs.statSync(at).isDirectory())) fail(`${printable(at, 160)} (for ${r}) isn’t a folder.`);
-  const r = startRunner({ roots, say: (line) => console.log(line), maxMode: o.maxMode, allow: o.allow });
+  const r = startRunner({ roots, say: (line) => console.log(line), allow: o.allow });
   const quit = () => {
     console.log(dim('\nStopping the runner and its sessions…'));
     void r.stop();

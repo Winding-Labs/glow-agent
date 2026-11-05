@@ -9,7 +9,7 @@ metadata:
 
 `/glow:run` starts it, `/glow:run stop` stops it. Run exactly one of these commands, nothing else, and add no folders or options to it (for those, the user runs `npx @winding-labs/glow run` in a terminal).
 
-To start it in the background, for the linked repos checked out in the session's working folder and the folders under it. Its sessions look only (Claude Code's plan mode: they read and change nothing); to let them edit files, the user runs `npx @winding-labs/glow run --max-mode edit` in a terminal (`--repo` and other folders are for the terminal too):
+To start it in the background, for the linked repos checked out in the session's working folder and the folders under it. Its sessions run like the user's own `claude --dangerously-skip-permissions`, with their Claude Code model and effort, each in a git worktree of its own (`--repo` and other folders are for the terminal):
 
 ```bash
 ~/.glow/glow run --background
