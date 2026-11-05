@@ -156,6 +156,12 @@ async function setup(o) {
   console.log(`Found: ${agents.map((a) => AGENTS[a].label).join(', ')}`);
 
   let cfg = readConfig();
+  // What this computer chose itself outlives a new pairing with the same Glow: the phone it trusts (so a pairing Glow
+  // forces with a 401 can't swap it; only `glow phone trust` at this terminal can), the repos it ignores, and its
+  // message and recipe choices. --fresh starts from nothing.
+  const kept = cfg && !o.fresh && apiBase(cfg.api) === apiBase(o.api)
+    ? Object.fromEntries(['phone', 'ignored', 'messages', 'recipes'].filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]))
+    : {};
   if (cfg && (o.fresh || apiBase(cfg.api) !== apiBase(o.api))) {
     await api(cfg, 'DELETE', '/api/v1/agent/computer', undefined, 5_000);
     cfg = null;
@@ -175,7 +181,7 @@ async function setup(o) {
 
   if (!cfg) {
     const paired = await pair(o, agents);
-    cfg = { api: apiBase(o.api), ...(o.dev ? { dev: true } : {}), key: paired.key, computer: paired.computer, workspace: paired.workspace, repos: paired.repos, repos_at: Date.now(), agents, version: VERSION };
+    cfg = { ...kept, api: apiBase(o.api), ...(o.dev ? { dev: true } : {}), key: paired.key, computer: paired.computer, workspace: paired.workspace, repos: paired.repos, repos_at: Date.now(), agents, version: VERSION };
     writeConfig(cfg);
     info = { computer: { ...paired.computer, paused: false }, workspace: paired.workspace, repos: paired.repos };
     console.log('');
