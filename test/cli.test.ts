@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 // @ts-expect-error plain JS
-import { apiOk, mask, messagePayload, parseRemote, phoneFingerprint, prIn, runPayload } from '../lib/core.mjs';
+import { apiOk, mask, messagePayload, parseRemote, phoneFingerprint, prIn, runPayload, VERSION } from '../lib/core.mjs';
 import { messagePayload as coreMessagePayload, runPayload as coreRunPayload } from '../../core/src/phone';
 // @ts-expect-error plain JS
 import { hookEntry, isOurs, withHook, withoutHook } from '../lib/agents.mjs';
@@ -81,12 +81,15 @@ describe('your Glow phone', () => {
 });
 
 describe('shapes', () => {
-  test('GitHub remotes only, lower-cased', () => {
+  test('GitHub remotes only, lower-cased; one version everywhere', () => {
     expect(parseRemote('git@github.com:Winding-Labs/Zest.git')).toBe('winding-labs/zest');
     expect(parseRemote('https://github.com/winding-labs/zest')).toBe('winding-labs/zest');
     expect(parseRemote('https://x-access-token:abc@github.com/winding-labs/zest.git')).toBe('winding-labs/zest');
     expect(parseRemote('ssh://git@github.com/winding-labs/zest.git')).toBe('winding-labs/zest');
     for (const bad of ['git@gitlab.com:a/b.git', 'https://github.com.evil.com/a/b', 'https://github.com/a/b/c', '', 'https://github.com/a/..']) expect([bad, parseRemote(bad)]).toEqual([bad, null]);
+    // what the CLI tells Glow it is, what npm and the plugin say: one version (0.1.14 went out saying 0.1.13)
+    const json = (f: string) => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+    expect([json('package.json').version, json('marketplace/.claude-plugin/marketplace.json').plugins[0].version, json('marketplace/glow/.claude-plugin/plugin.json').version, json('marketplace/glow/.codex-plugin/plugin.json').version]).toEqual(Array(4).fill(VERSION));
   });
 
   test('only Glow’s API: https app.meetglow.ai (or staging); localhost only with --dev', () => {
