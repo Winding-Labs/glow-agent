@@ -234,8 +234,17 @@ describe('the hook and the installer against a fake Glow', () => {
     const signed = path.join(home, 'signed');
     const pwned = path.join(home, 'pwned');
     const gpg = path.join(home, 'fake-gpg.sh');
-    fs.writeFileSync(gpg, `#!/bin/sh\ncase "$*" in *--verify*) touch ${JSON.stringify(pwned)}; exit 1;; esac\necho '[GNUPG:] SIG_CREATED ' >&2\nprintf -- '-----BEGIN PGP SIGNATURE-----\\nx\\n-----END PGP SIGNATURE-----\\n'\n`, { mode: 0o755 });
-    const git = (...a: string[]) => execFileSync('git', ['-C', signed, ...a], { stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+    // Reads its stdin first: exiting before git has written the payload makes git's write fail (EPIPE, exit 128) on a slow machine.
+    fs.writeFileSync(gpg, `#!/bin/sh\ncat >/dev/null\ncase "$*" in *--verify*) touch ${JSON.stringify(pwned)}; exit 1;; esac\necho '[GNUPG:] SIG_CREATED ' >&2\nprintf -- '-----BEGIN PGP SIGNATURE-----\\nx\\n-----END PGP SIGNATURE-----\\n'\n`, { mode: 0o755 });
+    const git = (...a: string[]) => execFileSync('git', ['-C', signed, ...a], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+    // Setup only (not what's under test): a just-written script can briefly be "Text file busy" to exec on a loaded machine.
+    const settled = (f: () => unknown, done = () => true) => {
+      for (let i = 0; ; i++) {
+        try { f(); if (done()) return; } catch (e) { if (i === 2) throw new Error(String((e as { stderr?: Buffer }).stderr ?? e)); }
+        if (i === 2) return;
+        Bun.sleepSync(250);
+      }
+    };
     fs.mkdirSync(signed);
     git('init', '-q', '-b', 'main');
     git('remote', 'add', 'origin', 'git@github.com:winding-labs/zest.git');
@@ -243,12 +252,10 @@ describe('the hook and the installer against a fake Glow', () => {
     git('update-ref', 'refs/remotes/origin/main', 'HEAD');
     git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
     git('checkout', '-q', '-b', 'feature');
-    git('-c', `gpg.program=${gpg}`, 'commit', '-q', '-S', '--allow-empty', '-m', 'signed');
+    settled(() => git('-c', `gpg.program=${gpg}`, 'commit', '-q', '-S', '--allow-empty', '-m', 'signed'));
     git('config', 'log.showSignature', 'true');
     git('config', 'gpg.program', gpg);
-    try {
-      git('log', '-n', '1', 'origin/main..HEAD');
-    } catch {}
+    settled(() => { try { git('log', '-n', '1', 'origin/main..HEAD'); } catch {} }, () => fs.existsSync(pwned));
     expect(fs.existsSync(pwned)).toBe(true); // the control: a plain git log would run it
     fs.rmSync(pwned);
     writeCfg();
