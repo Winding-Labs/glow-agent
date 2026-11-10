@@ -78,14 +78,46 @@ Pause the computer in Glow to hold the queue.
   and `--repo owner/name=~/code/zest` picks the checkout when a repo is checked out more than once (otherwise it doesn't
   run; worktrees don't count: it runs in the main checkout). Only in a folder you've trusted in Claude Code (opened `claude` there and said yes), since its own `.claude`
   settings and hooks apply. A session id is run once, never again.
+- **What Glow knows, read-only:** every session gets one tool of this package, `glow_memory` (MCP server `glow`): what
+  Glow knows about the run's product, its text and the links and media kept for runs to reuse (its pages, posts,
+  videos, images and listings, from its timeline in Glow and the links you add on the product's About screen), minus
+  the ones you X out there. It asks Glow with this computer's key and sends nothing but the run's id; Glow answers only
+  for a run it handed this computer, while it runs. It changes nothing, here or in Glow. Listing runs don't get it.
 - **What Glow keeps of a run:** its usage (how many of its tool calls failed, and how much of your Claude plan was used
   when it started), and for 2 days its transcript (Claude Code's words, each tool or command,
   the first lines of each result, its reply), keys masked and cut short, at most 256 KB, that only you can read.
-- **Up to 3 at once** on a computer, even in one repo (each in its own worktree), the rest wait their turn, 30 a day, 3 hours each at most. Stop from Glow ends the session and
+- **Up to 10 sessions at once** on a computer, even in one repo (each in its own worktree), fewer while the computer is
+  busy (load per core 1.5 or more), the rest wait their turn, 3 hours each at most. Stop from Glow ends the session and
   the commands it started. Pausing the computer in Glow stops them all; Ctrl-C (or closing the terminal) stops the
   runner and its sessions, and everything they started.
-- `run --background` keeps it going after you close the terminal (log: `~/.glow/runner.log`); `run stop` stops it. A
-  session the runner started can't stop it or turn Glow off.
+- **Runs in line for one repo go together.** When a slot opens, Glow hands over the oldest run in line with the others
+  in line for the same repo (yours, signed by the same phone, up to 8; never a listing run). Each one's signature is
+  checked on its own, exactly as for a single run, and one that fails is left out (and reported failed). The rest run as
+  one Claude Code session: a fixed note from this package (not Glow's words, and not signed, so it says only how to
+  work: subagents for independent tasks, related fixes in one pull request, one release at the end, a report per task),
+  then each signed prompt whole, in a section of its own. Each run keeps its own record in Glow: it shows as running
+  with the first, ends as that one ends, and gets its own part of the reply (`## Task k`). Stop on any of them stops the
+  session; a resume picks all of them up (the runner's own record names them).
+- **Interrupted runs pick up again.** When the runner stops (a restart, `run stop`, Ctrl-C) or Claude Code stops over
+  its login or usage limit, the run is paused, not over: the next time the runner runs, it picks it up with
+  `claude --resume` in the same worktree, at most 3 times and within a day. Only a run it started itself after checking
+  your phone's signature. While Claude Code needs `/login` it takes nothing new and checks again every couple of
+  minutes; at a usage limit it waits for the reset. Stop in Glow, pausing the computer and a removed key are final.
+- **Listing runs are narrower.** A signed brief whose first line is `Task: Site listings · <Product>` (or `Rotate
+  listing logins · <Product>`) and that names its sites on one `Sites:` line (at most 15) runs with no shell, no files
+  and no web fetch: only a Chrome of the product's own (Playwright MCP, profile `~/.glow/browsers/listing-<product>`,
+  signed in to that product's listing accounts only) and three tools of this package, `new_login`, `fill` and `inbox`, and only for the sites on that line. One
+  at a time on a computer. A password is made here, kept in your login Keychain (`ai.meetglow.sites`,
+  `<product>:<site>`) and put on the clipboard for 30 seconds to paste: Claude Code never sees it, and it's masked in
+  everything Glow gets. `glow sites list` shows the logins (never a password); `glow sites export --out file.csv` writes
+  them all for 1Password's import (a 0600 file, after you type `export`; delete it once imported). For verification
+  mail, `glow sites connect-mail` links this Mac once to a small Apps Script relay you deploy on a member of your
+  `listing@` Google Group (`lib/listing-mail.gs`: read-only, answers only this Mac's key, only mail to `listing+…@`
+  from the last 30 minutes); runs get only links on the site's own domain and codes.
+- `run --background` keeps it going after you close the terminal (log: `~/.glow/runner.log`); on a Mac it's a
+  LaunchAgent (`~/Library/LaunchAgents/ai.meetglow.runner.plist`), so it starts again after a restart. `run stop`
+  stops it and removes that. It picks up a new pairing by itself. A session the runner started can't stop it or turn
+  Glow off.
 
 ## In Claude Code and Codex
 
@@ -113,6 +145,11 @@ npx @winding-labs/glow messages off    messages from Glow no longer reach your a
 npx @winding-labs/glow run [folders]   run your queue (and sessions you start in Glow) in the linked repos under these folders
     [--repo owner/name[=path]…] [--background]
 npx @winding-labs/glow run stop        stop the runner (and its sessions)
+npx @winding-labs/glow sites list      the site logins listing runs made here (never a password)
+npx @winding-labs/glow sites export --out <file>
+                                       all of them, passwords too, as a CSV for 1Password's import (asks first)
+npx @winding-labs/glow sites connect-mail
+                                       let listing runs read their verification mail (the listings mail relay)
 npx @winding-labs/glow uninstall       remove the hooks and the plugin, revoke the key, delete ~/.glow
 ```
 

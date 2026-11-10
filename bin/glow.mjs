@@ -10,9 +10,12 @@
 //   npx @winding-labs/glow messages off    stop messages from Glow reaching this computer's agents (on: again)
 //   npx @winding-labs/glow recipes off     stop sending the request each reply answers (Glow learns recipes from it)
 //   npx @winding-labs/glow run [folder…]   let Glow start Claude Code sessions here, in the linked repos under these
-//                                          folders (default: this one), while it runs (--background; run stop)
+//                                          folders (default: this one), while it runs (--background: on macOS a
+//                                          LaunchAgent, so it starts again after a restart; run stop)
 //   npx @winding-labs/glow phone           the Glow phone this computer trusts (what it signs runs here), and Glow's word
 //   npx @winding-labs/glow phone trust     trust the phone Glow names now instead (after you made a new one yours)
+//   npx @winding-labs/glow sites …         site logins listing runs made here: list, export (CSV for 1Password),
+//                                          connect-mail (lib/sites.mjs)
 //   npx @winding-labs/glow uninstall       remove the hooks and plugins, revoke this computer's key, delete ~/.glow
 //
 // Setup copies this package to ~/.glow (bin, lib, marketplace) with two shims: ~/.glow/hook, which the agents' Stop
@@ -26,7 +29,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { addPlugin, AGENTS, detect, install, installed, removePlugin, shimPath, shq, uninstall } from '../lib/agents.mjs';
 import { api, apiBase, apiOk, computerName, DEFAULT_API, dir, fingerprintText, ignoredOf, phoneOf, pinPhone, printable, readConfig, REPO_RE, repoOf, VERSION, writeConfig } from '../lib/core.mjs';
-import { inRunnerSession, logPath, runnerState, SESSION_ENV, startRunner } from '../lib/runner.mjs';
+import { agentPlistPath, installAgent, kickAgent, launchdHere, removeAgent } from '../lib/launchd.mjs';
+import { AT_ONCE, inRunnerSession, logPath, runnerState, SESSION_ENV, startRunner } from '../lib/runner.mjs';
 
 const PKG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tty = process.stdout.isTTY;
@@ -53,11 +57,17 @@ const HELP = `Glow ${VERSION}: send what your coding agents do to your Glow chan
                                          repos checked out under these folders (default: this one), while it runs. Each
                                          runs like your own claude --dangerously-skip-permissions, with your Claude Code
                                          model and effort, in a git worktree of its own
-      --background                       keep it running after this terminal closes (log: ~/.glow/runner.log)
+      --background                       keep it running after this terminal closes, and on a Mac start it again
+                                         after a restart (log: ~/.glow/runner.log)
       --repo owner/name[=path]           only this repo (repeat for more); =path picks its checkout
-  npx @winding-labs/glow run stop        stop it, and the sessions it runs
+  npx @winding-labs/glow run stop        stop it and its sessions (they pick up again when it next runs)
   npx @winding-labs/glow phone           the Glow phone this computer trusts: only what it signs (after Face ID) runs here
   npx @winding-labs/glow phone trust     trust the phone Glow names now instead (once you've made a new phone yours)
+  npx @winding-labs/glow sites list      the site logins listing runs made here (never a password)
+  npx @winding-labs/glow sites export --out <file>
+                                         all of them, passwords too, as a CSV for 1Password's import (asks first)
+  npx @winding-labs/glow sites connect-mail
+                                         let listing runs read their verification mail (the listings mail relay)
   npx @winding-labs/glow uninstall       remove the hooks and revoke this computer's key
 
 In Claude Code: /glow:status, /glow:ignore, /glow:unignore, /glow:run (in Codex: $glow:status, $glow:ignore, …)
@@ -128,6 +138,8 @@ async function main() {
   if (process.platform === 'win32') fail('Glow’s agent hook runs on macOS and Linux for now.');
   const major = Number(process.versions.node.split('.')[0]);
   if (major < 18) fail(`Glow needs Node 18 or newer (this is ${process.version}).`);
+  if (process.argv[2] === 'competitors') process.exit(await (await import('../lib/competitors.mjs')).competitorsCommand(process.argv.slice(3)));
+  if (process.argv[2] === 'sites') process.exit(await (await import('../lib/sites.mjs')).sitesCommand(process.argv.slice(3), { inRun: inRunnerSession() }));
   const o = parse(process.argv.slice(2));
   if (o.cmd === 'help') return console.log(HELP);
   if (o.cmd === 'version') return console.log(VERSION);
@@ -411,9 +423,9 @@ async function status() {
     ['Glow phone', cfg.phone?.fingerprint
       ? `${printable(cfg.phone.name, 60)} (${fingerprintText(cfg.phone.fingerprint)}): only what it signs runs here${phoneOf(res.json?.phone) && phoneOf(res.json.phone).fingerprint !== cfg.phone.fingerprint ? ` · Glow names another: npx @winding-labs/glow phone trust` : ''}`
       : 'none trusted yet: make your phone your Glow phone in the app (Settings › Glow phone)'],
-    ['Runner', rs
+    ['Runner', `${rs
       ? `on since ${new Date(rs.started_at).toLocaleString()} (pid ${rs.pid}) in ${(rs.roots ?? []).map((r) => printable(r, 160)).join(', ')}: Glow can start Claude Code sessions here · stop: npx @winding-labs/glow run stop`
-      : 'off: Glow can’t start sessions here (to let it: npx @winding-labs/glow run, in your code folder)'],
+      : 'off: Glow can’t start sessions here (to let it: npx @winding-labs/glow run, in your code folder)'}${launchdHere() && fs.existsSync(agentPlistPath()) ? ' · starts at login (LaunchAgent)' : ''}`],
   ];
   console.log(`${bold('Glow')} ${dim(VERSION)} · ${apiBase(cfg.api)}\n`);
   for (const [k, v] of rows) console.log(`${dim(k.padEnd(14))}${v}`);
@@ -449,11 +461,13 @@ function ignore(target, on) {
   console.log(linked ? 'Sessions in it report to Glow again.' : `It isn’t linked to a product, so it still sends nothing. Link it: ${linkUrl(cfg, repo)}`);
 }
 
-function toggle(off) {
+async function toggle(off) {
   const cfg = readConfig();
   if (!cfg) fail('Not set up. Run npx @winding-labs/glow');
   writeConfig({ ...cfg, off });
   ok(off ? 'Off: nothing is sent from this computer until you run npx @winding-labs/glow on' : 'On: sessions in linked repos report to Glow again');
+  // The LaunchAgent's runner stopped when sending went off: it starts again now (and picks up what it paused).
+  if (!off && launchdHere() && !runnerState() && (await kickAgent())) ok('Runner on again');
 }
 
 function messages(on) {
@@ -472,6 +486,7 @@ function recipes(on) {
 
 async function remove() {
   const cfg = readConfig();
+  if (launchdHere() && (await removeAgent())) ok(`Removed the runner’s LaunchAgent (${tilde(agentPlistPath())})`);
   const rs = runnerState();
   if (rs) {
     try {
@@ -506,21 +521,32 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * `glow run [folder…]`: Glow can start Claude Code sessions here while this runs (lib/runner.mjs). In the foreground
- * (Ctrl-C stops it and its sessions), or with --background as its own process logging to ~/.glow/runner.log. One per
- * computer. `glow run stop` ends it.
+ * (Ctrl-C stops it and its sessions), or with --background as its own process logging to ~/.glow/runner.log: on macOS a
+ * LaunchAgent (lib/launchd.mjs), so it starts again at login. One per computer. `glow run stop` ends it (and unloads
+ * the LaunchAgent). What it was running when stopped picks up again the next time it runs. It exits 0 when it isn't
+ * meant to run (not set up, off, already on), so launchd doesn't start it over and over.
  */
 async function run(o) {
   const cfg = readConfig();
-  if (!cfg) fail('Glow isn’t set up on this computer. Set it up first: npx @winding-labs/glow');
+  const no = (s) => {
+    warn(s);
+    process.exit(0);
+  };
+  if (!cfg) no('Glow isn’t set up on this computer. Set it up first: npx @winding-labs/glow');
   const on = runnerState();
   if (o.runStop) {
-    if (!on) return console.log('The runner isn’t on here, so Glow can’t start sessions on this computer.');
-    process.kill(on.pid, 'SIGTERM');
+    const agent = launchdHere() && (await removeAgent());
+    if (!on) return console.log(agent ? 'Runner stopped, and it won’t start at login any more.' : 'The runner isn’t on here, so Glow can’t start sessions on this computer.');
+    try {
+      process.kill(on.pid, 'SIGTERM');
+    } catch {
+      // launchd stopped it already
+    }
     for (let n = 0; n < 120 && runnerState(); n++) await sleep(100);
-    return runnerState() ? warn(`Asked the runner (pid ${on.pid}) to stop; it’s still finishing.`) : ok('Runner stopped: Glow can’t start sessions here until you run it again.');
+    return runnerState() ? warn(`Asked the runner (pid ${on.pid}) to stop; it’s still finishing.`) : ok('Runner stopped: Glow can’t start sessions here until you run it again (what it was running picks up then).');
   }
-  if (cfg.off) fail('Sending is off on this computer. Turn it on first: npx @winding-labs/glow on');
-  if (on) fail(`The runner is already on here (pid ${on.pid}, in ${(on.roots ?? []).map((r) => printable(r, 160)).join(', ')}). Stop it first: npx @winding-labs/glow run stop`);
+  if (cfg.off) no('Sending is off on this computer. Turn it on first: npx @winding-labs/glow on');
+  if (on) no(`The runner is already on here (pid ${on.pid}, in ${(on.roots ?? []).map((r) => printable(r, 160)).join(', ')}). Stop it first: npx @winding-labs/glow run stop`);
   const roots = (o.roots.length ? o.roots : [process.cwd()]).map((r) => path.resolve(r.replace(/^~(?=$|\/)/, os.homedir())));
   for (const r of roots) if (!fs.existsSync(r) || !fs.statSync(r).isDirectory()) fail(`${printable(r, 160)} isn’t a folder.`);
   // From 0.1.4 the hook leaves the sessions the runner starts to the runner (one report each): bring an older copy up.
@@ -541,8 +567,9 @@ async function run(o) {
   } catch {
     shimNow = '';
   }
-  // Older, or a ~/.glow/glow that drops the session marker (an early 0.1.4): bring it up.
-  if (hookVersion && /^\d+\.\d+\.\d+$/.test(VERSION) && (older(hookVersion, VERSION) || (shimNow && !shimNow.includes(SESSION_ENV)))) {
+  // Older, the same version from somewhere else (a source checkout between releases: its files may be newer), or a
+  // ~/.glow/glow that drops the session marker (an early 0.1.4): bring it up. Never back to an older version.
+  if (hookVersion && /^\d+\.\d+\.\d+$/.test(VERSION) && !older(VERSION, hookVersion) && (older(hookVersion, VERSION) || fs.realpathSync(PKG) !== fs.realpathSync(dir()) || (shimNow && !shimNow.includes(SESSION_ENV)))) {
     copyFiles();
     console.log(dim(older(hookVersion, VERSION) ? `Updated Glow’s hook on this computer from ${hookVersion} to ${VERSION}.` : 'Updated Glow’s files on this computer.'));
   }
@@ -557,13 +584,36 @@ async function run(o) {
     const fd = fs.openSync(log, 'a', 0o600);
     fs.chmodSync(log, 0o600);
     const flags = [...o.allow].flatMap(([r, at]) => ['--repo', at ? `${r}=${at}` : r]);
+    const what = `it runs what your Glow phone signs, ${AT_ONCE} sessions at a time (runs in line for one repo go together in one), in the linked repos under ${roots.map(tilde).join(', ')} (pause this computer in Glow to hold it)`;
+    // macOS: a LaunchAgent, running ~/.glow's copy (brought up to this version above), so it outlives npx's cache.
+    if (launchdHere()) {
+      if (!fs.existsSync(path.join(dir(), 'bin', 'glow.mjs'))) copyFiles();
+      const err = await installAgent({ node: process.execPath, script: path.join(dir(), 'bin', 'glow.mjs'), args: [...roots, ...flags], home: os.homedir(), cwd: roots[0], log });
+      if (!err) {
+        for (let n = 0; n < 80 && !runnerState(); n++) await sleep(100);
+        const rs = runnerState();
+        if (!rs) fail(`The runner didn’t start. See ${tilde(log)} (it’s a LaunchAgent: ${tilde(agentPlistPath())}; npx @winding-labs/glow run stop removes it)`);
+        ok(`Runner on in the background (pid ${rs.pid}), and again after a restart: ${what}.`);
+        console.log(dim(`Log: ${tilde(log)} · Stop: npx @winding-labs/glow run stop`));
+        return;
+      }
+      warn(`Couldn’t make it a LaunchAgent (${printable(err, 160)}), so it won’t start again after a restart.`);
+    }
     const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'run', ...roots, ...flags], { detached: true, stdio: ['ignore', fd, fd], env: process.env, cwd: roots[0] });
     child.unref();
     for (let n = 0; n < 80 && runnerState()?.pid !== child.pid; n++) await sleep(100);
     if (runnerState()?.pid !== child.pid) fail(`The runner didn’t start. See ${tilde(log)}`);
-    ok(`Runner on in the background (pid ${child.pid}): it runs what your Glow phone signs, 3 at a time, in the linked repos under ${roots.map(tilde).join(', ')} (pause this computer in Glow to hold it).`);
+    ok(`Runner on in the background (pid ${child.pid}): ${what}.`);
     console.log(dim(`Log: ${tilde(log)} · Stop: npx @winding-labs/glow run stop`));
     return;
+  }
+  // Under launchd its output is runner.log, appended to: kept under about a megabyte.
+  try {
+    const out = fs.fstatSync(1);
+    const log = fs.statSync(logPath());
+    if (out.isFile() && out.ino === log.ino && out.dev === log.dev && out.size > 1_000_000) fs.ftruncateSync(1, 0);
+  } catch {
+    // a terminal, or no log
   }
   for (const [r, at] of o.allow) if (at && (!fs.existsSync(at) || !fs.statSync(at).isDirectory())) fail(`${printable(at, 160)} (for ${r}) isn’t a folder.`);
   const r = startRunner({ roots, say: (line) => console.log(line), allow: o.allow });

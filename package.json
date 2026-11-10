@@ -1,6 +1,6 @@
 {
   "name": "@winding-labs/glow",
-  "version": "0.1.15",
+  "version": "0.1.27",
   "description": "Send what your coding agents (Claude Code, Codex) do to your Glow channels, message them back, and start Claude Code sessions from Glow.",
   "type": "module",
   "bin": { "glow": "bin/glow.mjs" },

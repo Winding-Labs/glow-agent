@@ -1,0 +1,7 @@
+#!/bin/sh
+# gpg.program for the hook test: signs anything; asked to verify, leaves ./pwned (git runs it at the repo's top level).
+# Reads its stdin first: exiting before git has written the payload makes git's write fail (EPIPE, exit 128).
+cat >/dev/null
+case "$*" in *--verify*) touch pwned; exit 1;; esac
+echo '[GNUPG:] SIG_CREATED ' >&2
+printf -- '-----BEGIN PGP SIGNATURE-----\nx\n-----END PGP SIGNATURE-----\n'

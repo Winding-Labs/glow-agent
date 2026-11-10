@@ -1,0 +1,10 @@
+#!/bin/sh
+# Claude Code for the CLI tests: --help like 2.1, --version and auth status (~/claude-auth.json) from here (no node to
+# start), a session from claude.cjs.
+# A checked-in file, not one written per run: macOS scans a new program the first time it runs (0.1-0.3 s).
+case "$1" in
+  --help) printf '%s\n' '--session-id <uuid>' --dangerously-skip-permissions '--permission-prompts <target>' '-n, --name <name>' '--append-system-prompt <prompt>' '--tools <tools...>' --strict-mcp-config '--mcp-config <configs...>' '--permission-mode <mode> (choices: "dontAsk")' --restricted; exit 0;;
+  --version) echo '2.1.318 (Claude Code)'; exit 0;;
+  auth) cat "$HOME/claude-auth.json" 2>/dev/null || echo '{"loggedIn":true,"authMethod":"claude.ai","email":"ed@example.com"}'; exit 0;;
+esac
+exec node "$0.cjs" "$@"

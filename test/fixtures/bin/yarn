@@ -1,0 +1,3 @@
+#!/bin/sh
+# On PATH beside the fake claude, so the runner has no corepack shims to make (toolchain).
+exit 0
